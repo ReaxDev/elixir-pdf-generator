@@ -113,14 +113,38 @@ defmodule PdfGenerator do
     generate html, page_size: "A4"
   end
 
-  def generate( html, options ) do
-    wkhtml_path     = PdfGenerator.PathAgent.get.wkhtml_path
-    filebase        = generate_filebase(options[:filename])
-    html_file       = filebase <> ".html"
-    pdf_file        = filebase <> ".pdf"
-    File.write html_file, html
+  def generate( html, options ) when is_list(html) do
+    {filebases, html_files} = html
+    |> Stream.with_index
+    |> Stream.map(fn ({page, index}) ->
+      filename = case options[:filename] do
+        nil -> nil
+        name -> "#{index}_#{name}"
+      end
 
-    shell_params = [
+      filebase  = generate_filebase(filename)
+      html_file = filebase <> ".html"
+
+      File.write(html_file, page)
+      {filebase, html_file}
+    end)
+    |> Enum.unzip
+
+    generate(html_files, List.last(filebases) <> ".pdf", options)
+  end
+
+  def generate( html, options ) do
+    filebase  = generate_filebase(options[:filename])
+    html_file = filebase <> ".html"
+    pdf_file  = filebase <> ".pdf"
+
+    File.write(html_file, html)
+    generate(html_file, pdf_file, options)
+  end
+
+  def generate(html_file, pdf_file, options) do
+    wkhtml_path   = PdfGenerator.PathAgent.get.wkhtml_path
+    shell_params  = [
       "--page-size", Keyword.get( options, :page_size ) || "A4",
       Keyword.get( options, :shell_params ) || [] # will be flattened
     ]
@@ -132,6 +156,9 @@ defmodule PdfGenerator do
     # allow for xvfb-run wkhtmltopdf arg1 arg2
     # or sudo wkhtmltopdf ...
     { executable, arguments } = make_command_tuple(command_prefix, executable, arguments)
+
+    IO.inspect(executable)
+    IO.inspect(arguments)
 
     %Result{ out: _output, status: status, err: error } = Porcelain.exec(
       executable, arguments, [in: "", out: :string, err: :string]
